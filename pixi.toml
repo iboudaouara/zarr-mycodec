@@ -1,0 +1,11 @@
+[workspace]
+authors = ["Ibrahim Boudaouara <158514881+iboudaouara@users.noreply.github.com>"]
+channels = ["conda-forge"]
+name = "zarr-mycodec"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+zarr = ">=3.1.5,<4"
