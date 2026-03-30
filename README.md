@@ -1,7 +1,23 @@
-# Zarr Compressor
+# Custom Codec for Zarr v3
 
-Exploring ways to create a custom compressor for Zarr and VirtualiZarr.
+Exploring ways to implement a custom codec using the Zarr v3 codec interface (`zarr.abc.codec`).
 
-## Goal
+## Overview
 
-Integrate the custom FSTD compression/decompression logic as a native Zarr codec (``numcodecs`)
+The goal is to build a custom `ArrayBytesCodec` that can encode and decode data using a specialized format (e.g., FSTD), and later integrate with VirtualiZarr for data access.
+
+## Setup
+
+This project uses Pixi for environment management.
+
+### Install Dependencies
+
+```bash
+pixi install
+```
+
+### Run Code
+
+```bash
+pixi run python tests/test_fst_codec.py
+```
