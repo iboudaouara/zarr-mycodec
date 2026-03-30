@@ -19,7 +19,7 @@ class FSTCodec(ArrayBytesCodec):
     level: int = 1
 
     # ================================================================================
-    # SINGLE CHUNK PROCESSING (Recommended by default)
+    # 1. SINGLE CHUNK PROCESSING (Recommended by default)
     # Most custom codecs should implement these. They operate on single chunks.
     # ================================================================================
 
@@ -67,8 +67,28 @@ class FSTCodec(ArrayBytesCodec):
         raise NotImplementedError("Implement the single chunk decoding logic.")
 
     # ================================================================================
+    # 2. BATCH PROCESSING (Alternative)
+    # Implement these if the codec is intended to implement its own batch
+    # processing (e.g., for C/Fortran vectorization).
+    # If uncommented, these will override the _encode_single calls.
+    # ================================================================================
+
+    # async def encode(
+    #     self,
+    #     chunks_and_specs: Iterable[Tuple[Optional[NDBuffer], ArraySpec]],
+    # ) -> Iterable[Optional[Buffer]]:
+    #     """Operates on batches of chunks for encoding."""
+    #     pass
+
+    # async def decode(
+    #     self,
+    #     chunks_and_specs: Iterable[Tuple[Optional[Buffer], ArraySpec]],
+    # ) -> Iterable[Optional[NDBuffer]]:
+    #     """Operates on batches of chunks for decoding."""
+    #     pass
+
+    # ================================================================================
     # REQUIRED  BASE CLASS METHODS
-    # Inherited from zarr.abc.codec.ArrayBytesCodec
     # ================================================================================
 
     def compute_encoded_size(
@@ -81,6 +101,10 @@ class FSTCodec(ArrayBytesCodec):
         """
         raise NotImplementedError("FST encoded size is data-dependent.")
 
+    # ================================================================================
+    # OPTIONAL  BASE CLASS METHODS
+    # ================================================================================
+
     def validate(
         self,
         *,
@@ -88,10 +112,22 @@ class FSTCodec(ArrayBytesCodec):
         dtype: ZDType[TBaseDType, TBaseScalar],
         chunk_grid: ChunkGrid,
     ) -> None:
+        """
+        (Optional) Used to check that the codec metadata is compatible with the
+        array metadata. It should raise errors if not.
+        """
         return self
 
     def resolve_metadata(self, chunk_spec: ArraySpec) -> ArraySpec:
+        """
+        (Optional) Important for codecs that change the shape, dtype or
+        fill value of a chunk.
+        """
         return chunk_spec
 
     def evolve_from_array_spec(self, array_spec: ArraySpec) -> Self:
+        """
+        (Optional) Useful for automatically filling the codec configuration metadata
+        from the array metadata.
+        """
         return self
