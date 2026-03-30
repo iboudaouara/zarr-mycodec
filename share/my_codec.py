@@ -15,6 +15,11 @@ class FSTCodec(ArrayBytesCodec):
     This codec serves as a starting point for integrating custom formats (e.g., RPN-FST). Registration with Zarr is handled automatically via 'entry_points' in the pyproject.toml / pixi.toml file.
     """
 
+    @classmethod
+    def from_dict(cls, data):
+        config = data.get("configuration", {})
+        return cls(**config)
+
     # Codec attributes (e.g., compression level, specific options)
     level: int = 1
 
@@ -44,27 +49,23 @@ class FSTCodec(ArrayBytesCodec):
         self, input_buffer: Buffer, chunk_spec: ArraySpec
     ) -> NDBuffer:
         """Decodes a single chunk of data."""
-        #     """
-        #     Read (Bytes -> Array)
-        #
-        #     Takes a flat sequence of bytes read from disk and reconstructs the N-dimensional array.
-        #
-        #     Args:
-        #         input_buffer: The raw compressed bytes read from storage.
-        #         chunk_spec: Metadata telling us the shape and dtype we need to restore.
-        #     """
-        #     raw_bytes = input_buffer.to_bytes()
-        #
-        #     if hasattr(chunk_spec.dtype, 'to_native_dtype'):
-        #         numpy_dtype = chunk_spec.dtype.to_native_dtype()
-        #     elif hasattr(chunk_spec.dtype, 'to_numpy_dtype'):
-        #         numpy_dtype = chunk_spec.dtype.to_numpy_dtype()
-        #     else:
-        #         numpy_dtype = chunk_spec.dtype
-        #
-        #     restored_data = np.frombuffer(raw_bytes, dtype=numpy_dtype).reshape(chunk_spec.shape)
-        #     return chunk_spec.prototype.nd_buffer.from_numpy_array(restored_data)
-        raise NotImplementedError("Implement the single chunk decoding logic.")
+        """
+        Read (Bytes -> Array)
+        Takes a flat sequence of bytes read from disk and reconstructs the N-dimensional array.
+        Args:
+            input_buffer: The raw compressed bytes read from storage.
+            chunk_spec: Metadata telling us the shape and dtype we need to restore.
+        """
+        raw_bytes = input_buffer.to_bytes()
+        if hasattr(chunk_spec.dtype, 'to_native_dtype'):
+            numpy_dtype = chunk_spec.dtype.to_native_dtype()
+        elif hasattr(chunk_spec.dtype, 'to_numpy_dtype'):
+            numpy_dtype = chunk_spec.dtype.to_numpy_dtype()
+        else:
+            numpy_dtype = chunk_spec.dtype
+        restored_data = np.frombuffer(raw_bytes, dtype=numpy_dtype).reshape(chunk_spec.shape)
+        return chunk_spec.prototype.nd_buffer.from_numpy_array(restored_data)
+    #    raise NotImplementedError("Implement the single chunk decoding logic.")
 
     # ================================================================================
     # 2. BATCH PROCESSING (Alternative)
