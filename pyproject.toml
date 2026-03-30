@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zarr-mycodec"
+version = "0.1.0"
+description = "Custom Zarr v3 codec for FSTD"
+
+[project.entry-points."zarr.codecs"]
+"eccc-rpn-fst" = "share.my_codec:FSTCodec"
+
+[tool.hatch.build.targets.wheel]
+packages = ["share"]
