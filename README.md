@@ -19,5 +19,5 @@ pixi install
 ### Run Code
 
 ```bash
-pixi run python tests/test_fst_codec.py
+pixi run python tests/test_codec_logic.py
 ```
