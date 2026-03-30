@@ -23,7 +23,7 @@ async def test_codec_logic():
 
     # Test Encoding
     encoded_buffer = await codec._encode_single(input_buffer, spec)
-    # FIX: Changed as_bytes() to to_bytes()
+    
     print(f"   - Encoded {data.nbytes} bytes into {len(encoded_buffer.to_bytes())} bytes.")
 
     # Test Decoding

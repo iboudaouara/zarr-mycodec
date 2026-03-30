@@ -19,10 +19,6 @@ class FSTCodec(ArrayBytesCodec):
     async def _decode_single(self, input_buffer: Buffer, chunk_spec: ArraySpec) -> NDBuffer:
         raw_bytes = input_buffer.to_bytes()
         
-        # UNIVERSAL ADAPTER FOR ZARR V3
-        # 1. Try the newest 'to_native_dtype' (suggested by your error)
-        # 2. Try the older 'to_numpy_dtype'
-        # 3. Fallback to the object itself (for standard NumPy dtypes)
         if hasattr(chunk_spec.dtype, 'to_native_dtype'):
             numpy_dtype = chunk_spec.dtype.to_native_dtype()
         elif hasattr(chunk_spec.dtype, 'to_numpy_dtype'):
