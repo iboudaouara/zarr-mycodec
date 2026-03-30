@@ -9,6 +9,7 @@ version = "0.1.0"
 
 [dependencies]
 zarr = ">=3.1.5,<4"
+fsspec = ">=2026.3.0,<2027"
 
 [pypi-dependencies]
 zarr-mycodec = { path = ".", editable = true }
