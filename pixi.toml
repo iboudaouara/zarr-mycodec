@@ -10,8 +10,5 @@ version = "0.1.0"
 [dependencies]
 zarr = ">=3.1.5,<4"
 
-[activation.env]
-PYTHONPATH = "$PIXI_PROJECT_ROOT"
-
 [pypi-dependencies]
 zarr-mycodec = { path = ".", editable = true }
