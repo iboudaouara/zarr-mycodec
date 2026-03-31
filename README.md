@@ -24,7 +24,7 @@ pixi run python tests/test_codec_logic.py
 
 ## Development Notes: Zarr v3 Codec Contract
 
-This codec implements the `zarr.abc.codec,ArrayBytesCodec` interface.
+This codec implements the `zarr.abc.codec.ArrayBytesCodec` interface.
 To function correctly with Zarr v3, the following methods are implemented:
 
 * **Required Methods:**
@@ -35,8 +35,7 @@ To function correctly with Zarr v3, the following methods are implemented:
 * **Optional Methods:**
   * `get_config()` / `from_config()`: For writing metadata to zarr.json.
 
-## Methods to implement (copy-pasted from [Zarr Docs – Custom Codecs](https://zarr.readthedocs.io/en/latest/user-guide/extending/#custom-codecs)
-)
+## Methods to implement (copy-pasted from [Zarr Docs – Custom Codecs](https://zarr.readthedocs.io/en/latest/user-guide/extending/#custom-codecs))
 
 > Custom codecs should also implement the following methods:
 > 
