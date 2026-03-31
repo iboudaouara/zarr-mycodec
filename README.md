@@ -45,3 +45,5 @@ To function correctly with Zarr v3, the following methods are implemented:
 > evolve_from_array_spec (optional), which can be useful for automatically filling in codec configuration metadata from the array metadata.
 > 
 > Source: [Zarr Docs – Custom Codecs](https://zarr.readthedocs.io/en/latest/user-guide/extending/#custom-codecs)
+
+## foo section
