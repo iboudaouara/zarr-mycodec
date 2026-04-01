@@ -46,4 +46,3 @@ To function correctly with Zarr v3, the following methods are implemented:
 > 
 > Source: [Zarr Docs – Custom Codecs](https://zarr.readthedocs.io/en/latest/user-guide/extending/#custom-codecs)
 
-## foo section
