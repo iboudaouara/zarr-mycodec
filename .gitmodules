@@ -1,0 +1,3 @@
+[submodule "librmn"]
+	path = librmn
+	url = git@gitlab.science.gc.ca:RPN-SI/librmn
