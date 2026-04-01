@@ -1,4 +1,4 @@
-# Custom Codec for Zarr v3
+# Custom Codec for Zarr V3
 
 Exploring ways to implement a custom codec using the Zarr v3 codec interface (`zarr.abc.codec`).
 
@@ -21,5 +21,3 @@ pixi install
 ```bash
 pixi run python tests/test_codec_logic.py
 ```
-
-
