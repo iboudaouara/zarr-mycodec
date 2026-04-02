@@ -1,5 +1,13 @@
-from dataclasses import dataclass
+from __future__ import annotations
+
+import ctypes
+import logging
+import os
+import tempfile
+from dataclasses import dataclass, field
 from typing import Iterable, Optional, Self
+
+import numpy as np
 
 from zarr.abc.codec import ArrayBytesCodec
 from zarr.core.array_spec import ArraySpec
@@ -7,14 +15,57 @@ from zarr.core.buffer import Buffer, NDBuffer
 from zarr.core.chunk_grids import ChunkGrid
 from zarr.core.dtype.wrapper import TBaseDType, TBaseScalar, ZDType
 
-import logging
+import rmn
+from rmn.fst24file import fst24_file
+from rmn._sharedlib import librmn
+from rmn.fstrecord import (
+    FstDataType,
+    fst_record,
+    fst_type_to_numpy_type,
+    numpy_type_to_fst_type,
+)
+
 
 logging.basicConfig(level=logging.DEBUG)
 _log = logging.getLogger(__name__)
 
 
+_fst24_decode_data_rsf = librmn.fst24_decode_data_rsf
+_fst24_decode_data_rsf.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
+_fst24_decode_data_rsf.restype = fst_record
+
+_fst24_decode_data_xdf = librmn.fst24_decode_data_xdf
+_fst24_decode_data_xdf.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
+_fst24_decode_data_xdf.restype = fst_record
+
+_fst24_read_record = librmn.fst24_read_record
+_fst24_read_record.argtypes = (ctypes.POINTER(fst_record),)
+_fst24_read_record.restype = ctypes.c_int
+
+_get_default_fst_record = librmn.get_default_fst_record
+_get_default_fst_record.argtypes = ()
+_get_default_fst_record.restype = fst_record
+
+
 @dataclass(frozen=True)
 class FSTCodec(ArrayBytesCodec):
+
+    data_type: FstDataType = FstDataType.FST_TYPE_REAL
+    pack_bits: int = 16
+    nomvar: str = "    "
+    typvar: str = "P"
+    grtyp: str = "X"
+    etiket: str = ""
+    ip1: int = 0
+    ip2: int = 0
+    ip3: int = 0
+    ig1: int = 0
+    ig2: int = 0
+    ig3: int = 0
+    ig4: int = 0
+    deet: int = 0
+    npas: int = 0
+    dateo: int = 0
 
     # ================================================================================
     # SINGLE CHUNK PROCESSING
@@ -22,10 +73,53 @@ class FSTCodec(ArrayBytesCodec):
     async def _encode_single(
         self, input_buffer: NDBuffer, chunk_spec: ArraySpec
     ) -> Buffer:
-        _ = input_buffer
-        _log.debug("shape=%s, dtype=%s", chunk_spec.shape, chunk_spec.dtype)
-        # print(f"[_encode_single] shape={chunk_spec.shape}, dtype={chunk_spec.dtype}")
-        raise NotImplementedError("Implement the single chunk encoding logic.")
+        array = input_buffer.as_numpy_array()
+        ni, nj, nk = _shape_to_nijk(chunk_spec.shape)
+        fst_dtype, data_bits = _fst_dtype_and_bits(self.data_type, array.dtype)
+
+        _log.debug(
+            "encode shape=%s ni=%d nj=%d nk=%d dtype=%s pack_bits=%d",
+            chunk_spec.shape,
+            ni,
+            nj,
+            nk,
+            chunk_spec.dtype,
+            self.pack_bits,
+        )
+
+        rec = fst_record(
+            ni=ni,
+            nj=nj,
+            nk=nk,
+            data_type=fst_dtype,
+            data_bits=data_bits,
+            pack_bits=self.pack_bits,
+            nomvar=self.nomvar,
+            typvar=self.typvar,
+            grtyp=self.grtyp,
+            etiket=self.etiket,
+            ip1=self.ip1,
+            ip2=self.ip2,
+            ip3=self.ip3,
+            ig1=self.ig1,
+            ig2=self.ig2,
+            ig3=self.ig3,
+            ig4=self.ig4,
+            deet=self.deet,
+            npas=self.npas,
+            dateo=self.dateo,
+        )
+        rec.data = np.asfortranarray(array.reshape(ni, nj, nk))
+
+        payload = _write_record_to_bytes(rec)
+        _log.debug(
+            "encoded %d B -> %d B (ratio %.2f)",
+            array.nbytes,
+            len(payload),
+            array.nbytes / len(payload),
+        )
+
+        return Buffer.create_zero_length().__class__.from_bytes(payload)
 
     async def _decode_single(
         self, input_buffer: Buffer, chunk_spec: ArraySpec
@@ -64,7 +158,6 @@ class FSTCodec(ArrayBytesCodec):
     # ================================================================================
     # REQUIRED METADATA METHODS
     # ================================================================================
-
     def compute_encoded_size(
         self, input_byte_length: int, chunk_spec: ArraySpec
     ) -> int:
@@ -81,7 +174,6 @@ class FSTCodec(ArrayBytesCodec):
     # ================================================================================
     # OPTIONAL METADATA METHODS
     # ================================================================================
-
     def validate(
         self,
         *,
@@ -117,3 +209,61 @@ class FSTCodec(ArrayBytesCodec):
     def from_dict(cls, data):
         config = data.get("configuration", {})
         return cls(**config)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _write_record_to_bytes(rec: fst_record) -> bytes:
+    fd, path = tempfile.mkstemp(suffix=".fst")
+    os.close(fd)
+    try:
+        with fst24file(path, "w") as f:
+            f.write(rec)
+        with open(path, "rb") as f:
+            return f.read()
+    finally:
+        os.unlink(path)
+
+
+def _read_record_from_bytes(payload: bytes) -> fst_record:
+    fd, path = tempfile.mkstemp(suffix=".fst")
+    try:
+        os.write(fd, payload)
+        os.close(fd)
+        with fst24file(path, "r") as f:
+            records = list(f)
+        if not records:
+            raise RuntimeError("No record found in decoded FST payload")
+        return records[0]
+    finally:
+        os.unlink(path)
+
+
+def _shape_to_nijk(shape: tuple[int, ...]) -> tuple[int, int, int]:
+    ndim = len(shape)
+    if ndim == 1:
+        return shape[0], 1, 1
+    if ndim == 2:
+        return shape[0], shape[1], 1
+    if ndim == 3:
+        return shape[0], shape[1], shape[2]
+    ni = 1
+    for s in shape[:-2]:
+        ni *= s
+    return ni, shape[-2], shape[-1]
+
+
+def _fst_dtype_and_bits(
+    codec_type: FstDataType, dtype: np.dtype
+) -> tuple[FstDataType, int]:
+    possible_types, data_bits = numpy_type_to_fst_type(dtype)
+    if codec_type in possible_types:
+        return codec_type, data_bits
+    _log.debug(
+        "data_type=%s incompatible with dtype=%s, falling back to %s",
+        codec_type.name,
+        dtype,
+        possible_types[0].name,
+    )
+    return possible_types[0], data_bits
