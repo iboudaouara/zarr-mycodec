@@ -1,12 +1,16 @@
 from dataclasses import dataclass
-from typing import Iterable, Optional, Self, Tuple
+from typing import Iterable, Optional, Self
 
-import numpy as np
 from zarr.abc.codec import ArrayBytesCodec
 from zarr.core.array_spec import ArraySpec
 from zarr.core.buffer import Buffer, NDBuffer
 from zarr.core.chunk_grids import ChunkGrid
 from zarr.core.dtype.wrapper import TBaseDType, TBaseScalar, ZDType
+
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -15,43 +19,48 @@ class FSTCodec(ArrayBytesCodec):
     # ================================================================================
     # SINGLE CHUNK PROCESSING
     # ================================================================================
-
     async def _encode_single(
         self, input_buffer: NDBuffer, chunk_spec: ArraySpec
     ) -> Buffer:
-        print(f"[_encode_single] shape={chunk_spec.shape}, dtype={chunk_spec.dtype}")
+        _ = input_buffer
+        _log.debug("shape=%s, dtype=%s", chunk_spec.shape, chunk_spec.dtype)
+        # print(f"[_encode_single] shape={chunk_spec.shape}, dtype={chunk_spec.dtype}")
         raise NotImplementedError("Implement the single chunk encoding logic.")
 
     async def _decode_single(
         self, input_buffer: Buffer, chunk_spec: ArraySpec
     ) -> NDBuffer:
+        _ = input_buffer
         print(f"[_decode_single] shape={chunk_spec.shape}, dtype={chunk_spec.dtype}")
         raise NotImplementedError("Implement the single chunk decoding logic.")
 
     # ================================================================================
     # BATCH PROCESSING
     # ================================================================================
-
     async def encode(
         self,
-        chunks_and_specs: Iterable[Tuple[Optional[NDBuffer], ArraySpec]],
+        chunks_and_specs: Iterable[tuple[Optional[NDBuffer], ArraySpec]],
     ) -> Iterable[Optional[Buffer]]:
         chunks_and_specs = list(chunks_and_specs)
         print(f"[encode] {len(chunks_and_specs)} chunk(s)")
-        for i, (buf, spec) in enumerate(chunks_and_specs):
+
+        for i, (_, spec) in enumerate(chunks_and_specs):
             print(f"  chunk[{i}] shape={spec.shape}, dtype={spec.dtype}")
+
         return await super().encode(chunks_and_specs)
 
     async def decode(
         self,
-        chunks_and_specs: Iterable[Tuple[Optional[Buffer], ArraySpec]],
+        chunks_and_specs: Iterable[tuple[Optional[Buffer], ArraySpec]],
     ) -> Iterable[Optional[NDBuffer]]:
         chunks_and_specs = list(chunks_and_specs)
         print(f"[decode] {len(chunks_and_specs)} chunk(s)")
-        for i, (buf, spec) in enumerate(chunks_and_specs):
+
+        for i, (_, spec) in enumerate(chunks_and_specs):
             print(f"  chunk[{i}] shape={spec.shape}, dtype={spec.dtype}")
+
         return await super().decode(chunks_and_specs)
-    
+
     # ================================================================================
     # REQUIRED METADATA METHODS
     # ================================================================================
