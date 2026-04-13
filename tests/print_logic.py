@@ -3,6 +3,12 @@ import numpy as np
 import pytest
 from unittest.mock import MagicMock
 
+from zarr.core.array_spec import ArraySpec, ArrayConfig
+from zarr.core.dtype.wrapper import ZDType
+from zarr.core.buffer import NDBuffer
+from zarr.core.chunk_grids import RegularChunkGrid
+from zarr.core.buffer.cpu import buffer_prototype
+
 from share.my_codec import FSTCodec
 
 
@@ -20,7 +26,27 @@ def make_chunk_spec(shape=(4, 4), dtype=np.float32):
     )
     return spec
 
-
+def make_real_chunk_spec(shape=(4, 4), dtype="float32"):
+    # On crée un vrai objet ZDType
+    z_dtype = ZDType.from_native_dtype(np.dtype(dtype))
+    
+    # On crée une configuration minimale
+    config = ArrayConfig(
+        shape=shape,
+        dtype=z_dtype,
+        chunk_grid=RegularChunkGrid(chunk_shape=shape),
+        fill_value=0.0
+    )
+    
+    # On instancie le vrai ArraySpec
+    return ArraySpec(
+        shape=shape,
+        dtype=z_dtype,
+        fill_value=0.0,
+        config=config,
+        prototype=buffer_prototype()
+    )
+    
 def make_nd_buffer(shape=(4, 4), dtype=np.float32):
     arr = np.random.rand(*shape).astype(dtype)
     buf = MagicMock()
@@ -53,7 +79,7 @@ def codec():
 class TestEncodeSingle:
     def test_called(self, codec):
         nd_buf, _ = make_nd_buffer()
-        spec = make_chunk_spec()
+        spec = make_real_chunk_spec()
         with pytest.raises(NotImplementedError):
             run(codec._encode_single(nd_buf, spec))
 

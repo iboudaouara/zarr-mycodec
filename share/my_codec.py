@@ -1,21 +1,13 @@
-from __future__ import annotations
-
 import ctypes
-import io
 import logging
-import os
-import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Iterable, Optional, Self
 
 import numpy as np
-import rmn
 from rmn._sharedlib import librmn
-from rmn.fst24file import fst24_file
 from rmn.fstrecord import (
     FstDataType,
     fst_record,
-    fst_type_to_numpy_type,
     numpy_type_to_fst_type,
 )
 from zarr.abc.codec import ArrayBytesCodec
@@ -23,6 +15,7 @@ from zarr.core.array_spec import ArraySpec
 from zarr.core.buffer import Buffer, NDBuffer
 from zarr.core.chunk_grids import ChunkGrid
 from zarr.core.dtype.wrapper import TBaseDType, TBaseScalar, ZDType
+
 
 logging.basicConfig(level=logging.DEBUG)
 _log = logging.getLogger(__name__)
@@ -36,34 +29,10 @@ _fst24_decode_data_xdf = librmn.fst24_decode_data_xdf
 _fst24_decode_data_xdf.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
 _fst24_decode_data_xdf.restype = fst_record
 
-_fst24_read_record = librmn.fst24_read_record
-_fst24_read_record.argtypes = (ctypes.POINTER(fst_record),)
-_fst24_read_record.restype = ctypes.c_int
-
-_get_default_fst_record = librmn.get_default_fst_record
-_get_default_fst_record.argtypes = ()
-_get_default_fst_record.restype = fst_record
-
 
 @dataclass(frozen=True)
 class FSTCodec(ArrayBytesCodec):
-
-    data_type: FstDataType = FstDataType.FST_TYPE_REAL
-    pack_bits: int = 16
-    nomvar: str = "    "
-    typvar: str = "P"
-    grtyp: str = "X"
-    etiket: str = ""
-    ip1: int = 0
-    ip2: int = 0
-    ip3: int = 0
-    ig1: int = 0
-    ig2: int = 0
-    ig3: int = 0
-    ig4: int = 0
-    deet: int = 0
-    npas: int = 0
-    dateo: int = 0
+    format: str = "rsf"
 
     # ================================================================================
     # SINGLE CHUNK PROCESSING
@@ -71,78 +40,52 @@ class FSTCodec(ArrayBytesCodec):
     async def _encode_single(
         self, input_buffer: NDBuffer, chunk_spec: ArraySpec
     ) -> Buffer:
-        array = input_buffer.as_numpy_array()
-        ni, nj, nk = _shape_to_nijk(chunk_spec.shape)
-        fst_dtype, data_bits = _fst_dtype_and_bits(self.data_type, array.dtype)
-
         _log.debug(
-            "encode shape=%s ni=%d nj=%d nk=%d dtype=%s pack_bits=%d",
-            chunk_spec.shape,
-            ni,
-            nj,
-            nk,
-            chunk_spec.dtype,
-            self.pack_bits,
+            "[_encode_single] self=%s input_buffer=%s chunk_spec=%s",
+            self,
+            input_buffer,
+            chunk_spec,
         )
 
-        rec = fst_record(
-            ni=ni,
-            nj=nj,
-            nk=nk,
-            data_type=fst_dtype,
-            data_bits=data_bits,
-            pack_bits=self.pack_bits,
-            nomvar=self.nomvar,
-            typvar=self.typvar,
-            grtyp=self.grtyp,
-            etiket=self.etiket,
-            ip1=self.ip1,
-            ip2=self.ip2,
-            ip3=self.ip3,
-            ig1=self.ig1,
-            ig2=self.ig2,
-            ig3=self.ig3,
-            ig4=self.ig4,
-            deet=self.deet,
-            npas=self.npas,
-            dateo=self.dateo,
+        raise NotImplementedError(
+            f"Encoding is not supported. {self.__class__.__name__} is a read-only codec."
         )
-        rec.data = np.asfortranarray(array.reshape(ni, nj, nk))
 
-        payload = _write_record_to_bytes(rec)
+    async def _decode_single(
+        self, input_buffer: Buffer, chunk_spec: ArraySpec
+    ) -> NDBuffer:
         _log.debug(
-            "encoded %d B -> %d B (ratio %.2f)",
-            array.nbytes,
-            len(payload),
-            array.nbytes / len(payload),
+            "[_decode_single] self=%s input_buffer=%s chunk_spec=%s",
+            self,
+            input_buffer,
+            chunk_spec,
         )
 
-        return Buffer.create_zero_length().__class__.from_bytes(payload)
+        raw_bytes = input_buffer.tobytes()
+        data_ptr = ctypes.cast(raw_bytes, ctypes.c_void_p)
 
-    async def _decode_single(self, input_buffer: Buffer, chunk_spec: ArraySpec) -> NDBuffer:
-        raw_bytes = input_buffer.to_bytes()
-
-        _log.debug("[_decode_single] shape=%s, dtype=%s, input_bytes=%d", chunk_spec.shape, chunk_spec.dtype, len(raw_bytes))
-
-        rec = _read_record_from_bytes(raw_bytes)
-
-        total_elements = int(np.prod(chunk_spec.shape))
-        # rec.data is a ctypes void pointer; cast to the right type before wrapping.
-        if chunk_spec.dtype == np.float32:
-            c_type_ptr = ctypes.POINTER(ctypes.c_float)
-        elif chunk_spec.dtype == np.float64:
-            c_type_ptr = ctypes.POINTER(ctypes.c_double)
-        elif chunk_spec.dtype == np.int32:
-            c_type_ptr = ctypes.POINTER(ctypes.c_int32)
+        if getattr(self, "format", "rsf") == "rsf":
+            decode_func = _fst24_decode_data_rsf
         else:
-            raise ValueError(f"Unsupported dtype: {chunk_spec.dtype}")
+            decode_func = _fst24_decode_data_xdf
 
-        data_ptr = ctypes.cast(rec.data, c_type_ptr)
-        flat_array = np.ctypeslib.as_array(data_ptr, shape=(total_elements,)).copy()
-        array_nd = flat_array.reshape(chunk_spec.shape, order="F")
-        array_nd = array_nd.astype(chunk_spec.dtype, copy=False)
+        record = decode_func(data_ptr, None)
 
-        return NDBuffer.from_numpy_array(array_nd)
+        try:
+            byte_size = int(record.ni * record.nj * record.nk * (record.data_bits // 8))
+            
+            buffer_type = ctypes.c_byte * byte_size
+    
+            array = np.frombuffer(
+                buffer_type.from_address(record.data),
+                dtype=chunk_spec.dtype,
+            ).reshape(chunk_spec.shape)
+
+            return array
+
+        except Exception as e:
+            _log.error("Failed to map decoded FST record to NDBuffer: %s", e)
+            raise
 
     # ================================================================================
     # BATCH PROCESSING
@@ -230,58 +173,53 @@ class FSTCodec(ArrayBytesCodec):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-import os
-import tempfile
-import uuid
+import stat
+
+_FD_PATH_PREFIX = "/dev/fd/"
 
 
-import os
-import tempfile
-import uuid
-
-
-def _write_record_to_bytes(rec: fst_record) -> bytes:
-    filename = f"fst_chunk_write_{uuid.uuid4().hex}.fst"
-    tmp_path = os.path.join(tempfile.gettempdir(), filename)
-
-    try:
-        # 1. NOUVEAU : On force la création d'un fichier vide sur le disque
-        # pour satisfaire la routine c_fnom de librmn.
-        open(tmp_path, "a").close()
-
-        # 2. Maintenant que le fichier existe, librmn peut l'ouvrir en mode 'w'
-        with fst24_file(tmp_path, "w") as f:
-            f.write(rec)
-
-        # 3. On lit le fichier classique avec Python pour récupérer les octets
-        with open(tmp_path, "rb") as f:
-            return f.read()
-    finally:
-        # 4. Nettoyage
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+# def _write_record_to_bytes(rec: fst_record) -> bytes:
+#     # 1. Get a unique temporary path
+#     fd, tmp_path = tempfile.mkstemp(prefix="fst_chunk_write_", suffix=".fst")
+#     os.close(fd)
+#
+#     # 2. DELETE the 0-byte file so librmn can create it from scratch with proper headers
+#     os.remove(tmp_path)
+#
+#     try:
+#         # Let the C library create the file and write the record
+#         with fst24_file(tmp_path, "w") as f:
+#             f.write(rec)
+#
+#         # Read the resulting encoded bytes back into Python
+#         with open(tmp_path, "rb") as f_raw:
+#             return f_raw.read()
+#     finally:
+#         if os.path.exists(tmp_path):
+#             try:
+#                 os.remove(tmp_path)
+#             except OSError:
+#                 pass
 
 
 def _read_record_from_bytes(payload: bytes) -> fst_record:
-    filename = f"fst_chunk_read_{uuid.uuid4().hex}.fst"
-    tmp_path = os.path.join(tempfile.gettempdir(), filename)
+    # 1. Create a C-compatible byte array directly from the Python bytes
+    c_buffer = (ctypes.c_char * len(payload)).from_buffer_copy(payload)
 
-    try:
-        # 1. Python crée le fichier et y écrit les octets
-        # (Donc le fichier existe bien quand librmn va essayer de l'ouvrir)
-        with open(tmp_path, "wb") as f:
-            f.write(payload)
+    # 2. Get a void pointer to the memory buffer
+    buffer_ptr = ctypes.cast(c_buffer, ctypes.c_void_p)
 
-        # 2. librmn lit le fichier existant
-        with fst24_file(tmp_path, "r") as f:
-            records = list(f)
+    # 3. Decode directly in memory using the function you already imported!
+    # (Note: The second argument is usually a context pointer, passing None/0 typically works
+    # for default extraction, but adjust if librmn expects a specific struct pointer here).
+    rec = _fst24_decode_data_xdf(buffer_ptr, None)
 
-        if not records:
-            raise RuntimeError("Aucun enregistrement trouvé dans le payload FST")
-        return records[0]
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    # 4. Fallback check if the C library failed to return a valid record
+    # Depending on how the ctypes wrapper is structured, you might need to check if rec.data is null
+    if not rec or not rec.data:
+        raise RuntimeError("Failed to decode in-memory FST payload.")
+
+    return rec
 
 
 def _shape_to_nijk(shape: tuple[int, ...]) -> tuple[int, int, int]:
@@ -301,7 +239,7 @@ def _shape_to_nijk(shape: tuple[int, ...]) -> tuple[int, int, int]:
 def _fst_dtype_and_bits(
     codec_type: FstDataType, dtype: np.dtype
 ) -> tuple[FstDataType, int]:
-    possible_types, data_bits = numpy_type_to_fst_type(dtype)
+    possible_types, data_bits = numpy_type_to_fst_type(dtype.name)
     if codec_type in possible_types:
         return codec_type, data_bits
     _log.debug(
