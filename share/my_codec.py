@@ -124,11 +124,10 @@ class FSTCodec(ArrayBytesCodec):
 
         _log.debug("[_decode_single] shape=%s, dtype=%s, input_bytes=%d", chunk_spec.shape, chunk_spec.dtype, len(raw_bytes))
 
-        c_byte_array = ctypes.c_char_p(raw_bytes)
-        ptr_input = ctypes.cast(c_byte_array, ctypes.c_void_p)
+        rec = _read_record_from_bytes(raw_bytes)
 
-        rec = _fst24_decode_data_rsf(ptr_input, None)
-
+        total_elements = int(np.prod(chunk_spec.shape))
+        # rec.data is a ctypes void pointer; cast to the right type before wrapping.
         if chunk_spec.dtype == np.float32:
             c_type_ptr = ctypes.POINTER(ctypes.c_float)
         elif chunk_spec.dtype == np.float64:
@@ -136,19 +135,14 @@ class FSTCodec(ArrayBytesCodec):
         elif chunk_spec.dtype == np.int32:
             c_type_ptr = ctypes.POINTER(ctypes.c_int32)
         else:
-            raise ValueError(f"D")
+            raise ValueError(f"Unsupported dtype: {chunk_spec.dtype}")
 
         data_ptr = ctypes.cast(rec.data, c_type_ptr)
+        flat_array = np.ctypeslib.as_array(data_ptr, shape=(total_elements,)).copy()
+        array_nd = flat_array.reshape(chunk_spec.shape, order="F")
+        array_nd = array_nd.astype(chunk_spec.dtype, copy=False)
 
-        total_elements = np.prod(chunk_spec.shape)
-
-        flat_array = np.ctypeslib.as_array(data_ptr, shape=(total_elements,))
-
-        array_3d = flat_array.reshape(chunk_spec.shape, order='F')
-
-        array_3d = array_3d.astype(chunk_spec.dtype, copy=False)
-
-        raise NDBuffer.create(array_3d)
+        return NDBuffer.from_numpy_array(array_nd)
 
     # ================================================================================
     # BATCH PROCESSING
@@ -236,56 +230,58 @@ class FSTCodec(ArrayBytesCodec):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-import tempfile
 import os
+import tempfile
 import uuid
 
 
-import tempfile
 import os
+import tempfile
+import uuid
 
 
 def _write_record_to_bytes(rec: fst_record) -> bytes:
-    # 1. On crée un vrai fichier temporaire pour obtenir un descripteur (fd) valide
-    fd, actual_path = tempfile.mkstemp(prefix="fst_chunk_write_")
-    try:
-        # 2. LE TRUC MAGIQUE : On passe par /proc/self/fd/ pour forcer librmn
-        # à agir comme un flux, contournant ainsi le crash de c_fnom
-        path_fd = f"/proc/self/fd/{fd}"
+    filename = f"fst_chunk_write_{uuid.uuid4().hex}.fst"
+    tmp_path = os.path.join(tempfile.gettempdir(), filename)
 
-        with fst24_file(path_fd, "w") as f:
+    try:
+        # 1. NOUVEAU : On force la création d'un fichier vide sur le disque
+        # pour satisfaire la routine c_fnom de librmn.
+        open(tmp_path, "a").close()
+
+        # 2. Maintenant que le fichier existe, librmn peut l'ouvrir en mode 'w'
+        with fst24_file(tmp_path, "w") as f:
             f.write(rec)
 
-        # 3. On revient au début du fichier et on lit les octets
-        os.lseek(fd, 0, os.SEEK_SET)
-        return os.read(fd, os.fstat(fd).st_size)
+        # 3. On lit le fichier classique avec Python pour récupérer les octets
+        with open(tmp_path, "rb") as f:
+            return f.read()
     finally:
-        # 4. On ferme proprement et on supprime le fichier physique
-        os.close(fd)
-        if os.path.exists(actual_path):
-            os.remove(actual_path)
+        # 4. Nettoyage
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 def _read_record_from_bytes(payload: bytes) -> fst_record:
-    # On applique la même astuce pour la lecture
-    fd, actual_path = tempfile.mkstemp(prefix="fst_chunk_read_")
-    try:
-        # On écrit les octets dans le descripteur
-        os.write(fd, payload)
-        os.lseek(fd, 0, os.SEEK_SET)
+    filename = f"fst_chunk_read_{uuid.uuid4().hex}.fst"
+    tmp_path = os.path.join(tempfile.gettempdir(), filename)
 
-        # On trompe librmn avec /proc/self/fd/
-        path_fd = f"/proc/self/fd/{fd}"
-        with fst24_file(path_fd, "r") as f:
+    try:
+        # 1. Python crée le fichier et y écrit les octets
+        # (Donc le fichier existe bien quand librmn va essayer de l'ouvrir)
+        with open(tmp_path, "wb") as f:
+            f.write(payload)
+
+        # 2. librmn lit le fichier existant
+        with fst24_file(tmp_path, "r") as f:
             records = list(f)
 
         if not records:
             raise RuntimeError("Aucun enregistrement trouvé dans le payload FST")
         return records[0]
     finally:
-        os.close(fd)
-        if os.path.exists(actual_path):
-            os.remove(actual_path)
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 def _shape_to_nijk(shape: tuple[int, ...]) -> tuple[int, int, int]:
