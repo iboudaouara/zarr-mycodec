@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import io
 import logging
 import os
 import tempfile
@@ -8,23 +9,20 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional, Self
 
 import numpy as np
-
-from zarr.abc.codec import ArrayBytesCodec
-from zarr.core.array_spec import ArraySpec
-from zarr.core.buffer import Buffer, NDBuffer
-from zarr.core.chunk_grids import ChunkGrid
-from zarr.core.dtype.wrapper import TBaseDType, TBaseScalar, ZDType
-
 import rmn
-from rmn.fst24file import fst24_file
 from rmn._sharedlib import librmn
+from rmn.fst24file import fst24_file
 from rmn.fstrecord import (
     FstDataType,
     fst_record,
     fst_type_to_numpy_type,
     numpy_type_to_fst_type,
 )
-
+from zarr.abc.codec import ArrayBytesCodec
+from zarr.core.array_spec import ArraySpec
+from zarr.core.buffer import Buffer, NDBuffer
+from zarr.core.chunk_grids import ChunkGrid
+from zarr.core.dtype.wrapper import TBaseDType, TBaseScalar, ZDType
 
 logging.basicConfig(level=logging.DEBUG)
 _log = logging.getLogger(__name__)
@@ -121,12 +119,36 @@ class FSTCodec(ArrayBytesCodec):
 
         return Buffer.create_zero_length().__class__.from_bytes(payload)
 
-    async def _decode_single(
-        self, input_buffer: Buffer, chunk_spec: ArraySpec
-    ) -> NDBuffer:
-        _ = input_buffer
-        print(f"[_decode_single] shape={chunk_spec.shape}, dtype={chunk_spec.dtype}")
-        raise NotImplementedError("Implement the single chunk decoding logic.")
+    async def _decode_single(self, input_buffer: Buffer, chunk_spec: ArraySpec) -> NDBuffer:
+        raw_bytes = input_buffer.to_bytes()
+
+        _log.debug("[_decode_single] shape=%s, dtype=%s, input_bytes=%d", chunk_spec.shape, chunk_spec.dtype, len(raw_bytes))
+
+        c_byte_array = ctypes.c_char_p(raw_bytes)
+        ptr_input = ctypes.cast(c_byte_array, ctypes.c_void_p)
+
+        rec = _fst24_decode_data_rsf(ptr_input, None)
+
+        if chunk_spec.dtype == np.float32:
+            c_type_ptr = ctypes.POINTER(ctypes.c_float)
+        elif chunk_spec.dtype == np.float64:
+            c_type_ptr = ctypes.POINTER(ctypes.c_double)
+        elif chunk_spec.dtype == np.int32:
+            c_type_ptr = ctypes.POINTER(ctypes.c_int32)
+        else:
+            raise ValueError(f"D")
+        
+        data_ptr = ctypes.cast(rec.data, c_type_ptr)
+        
+        total_elements = np.prod(chunk_spec.shape)
+        
+        flat_array = np.ctypeslib.as_array(data_ptr, shape=(total_elements,))
+        
+        array_3d = flat_array.reshape(chunk_spec.shape, order='F')
+        
+        array_3d = array_3d.astype(chunk_spec.dtype, copy=False)
+        
+        raise NDBuffer.create(array_3d)
 
     # ================================================================================
     # BATCH PROCESSING
@@ -215,29 +237,36 @@ class FSTCodec(ArrayBytesCodec):
 # Helpers
 # ---------------------------------------------------------------------------
 def _write_record_to_bytes(rec: fst_record) -> bytes:
-    fd, path = tempfile.mkstemp(suffix=".fst")
-    os.close(fd)
+    # Crée un fichier anonyme uniquement en RAM
+    fd = os.memfd_create("fst_chunk", flags=os.MFD_CLOEXEC)
     try:
-        with fst24file(path, "w") as f:
+        # On utilise le chemin spécial vers le file descriptor
+        path = f"/proc/self/fd/{fd}"
+        with fst24_file(path, "w") as f:
             f.write(rec)
-        with open(path, "rb") as f:
-            return f.read()
+
+        # On revient au début et on lit les octets
+        os.lseek(fd, 0, os.SEEK_SET)
+        return os.read(fd, os.fstat(fd).st_size)
     finally:
-        os.unlink(path)
+        os.close(fd)
 
 
 def _read_record_from_bytes(payload: bytes) -> fst_record:
-    fd, path = tempfile.mkstemp(suffix=".fst")
+    fd = os.memfd_create("fst_chunk_read", flags=os.MFD_CLOEXEC)
     try:
         os.write(fd, payload)
-        os.close(fd)
-        with fst24file(path, "r") as f:
+        os.lseek(fd, 0, os.SEEK_SET)
+
+        path = f"/proc/self/fd/{fd}"
+        with fst24_file(path, "r") as f:
             records = list(f)
+
         if not records:
-            raise RuntimeError("No record found in decoded FST payload")
+            raise RuntimeError("No record found in FST payload")
         return records[0]
     finally:
-        os.unlink(path)
+        os.close(fd)
 
 
 def _shape_to_nijk(shape: tuple[int, ...]) -> tuple[int, int, int]:
