@@ -137,17 +137,17 @@ class FSTCodec(ArrayBytesCodec):
             c_type_ptr = ctypes.POINTER(ctypes.c_int32)
         else:
             raise ValueError(f"D")
-        
+
         data_ptr = ctypes.cast(rec.data, c_type_ptr)
-        
+
         total_elements = np.prod(chunk_spec.shape)
-        
+
         flat_array = np.ctypeslib.as_array(data_ptr, shape=(total_elements,))
-        
+
         array_3d = flat_array.reshape(chunk_spec.shape, order='F')
-        
+
         array_3d = array_3d.astype(chunk_spec.dtype, copy=False)
-        
+
         raise NDBuffer.create(array_3d)
 
     # ================================================================================
@@ -236,37 +236,56 @@ class FSTCodec(ArrayBytesCodec):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+import tempfile
+import os
+import uuid
+
+
+import tempfile
+import os
+
+
 def _write_record_to_bytes(rec: fst_record) -> bytes:
-    # Crée un fichier anonyme uniquement en RAM
-    fd = os.memfd_create("fst_chunk", flags=os.MFD_CLOEXEC)
+    # 1. On crée un vrai fichier temporaire pour obtenir un descripteur (fd) valide
+    fd, actual_path = tempfile.mkstemp(prefix="fst_chunk_write_")
     try:
-        # On utilise le chemin spécial vers le file descriptor
-        path = f"/proc/self/fd/{fd}"
-        with fst24_file(path, "w") as f:
+        # 2. LE TRUC MAGIQUE : On passe par /proc/self/fd/ pour forcer librmn
+        # à agir comme un flux, contournant ainsi le crash de c_fnom
+        path_fd = f"/proc/self/fd/{fd}"
+
+        with fst24_file(path_fd, "w") as f:
             f.write(rec)
 
-        # On revient au début et on lit les octets
+        # 3. On revient au début du fichier et on lit les octets
         os.lseek(fd, 0, os.SEEK_SET)
         return os.read(fd, os.fstat(fd).st_size)
     finally:
+        # 4. On ferme proprement et on supprime le fichier physique
         os.close(fd)
+        if os.path.exists(actual_path):
+            os.remove(actual_path)
 
 
 def _read_record_from_bytes(payload: bytes) -> fst_record:
-    fd = os.memfd_create("fst_chunk_read", flags=os.MFD_CLOEXEC)
+    # On applique la même astuce pour la lecture
+    fd, actual_path = tempfile.mkstemp(prefix="fst_chunk_read_")
     try:
+        # On écrit les octets dans le descripteur
         os.write(fd, payload)
         os.lseek(fd, 0, os.SEEK_SET)
 
-        path = f"/proc/self/fd/{fd}"
-        with fst24_file(path, "r") as f:
+        # On trompe librmn avec /proc/self/fd/
+        path_fd = f"/proc/self/fd/{fd}"
+        with fst24_file(path_fd, "r") as f:
             records = list(f)
 
         if not records:
-            raise RuntimeError("No record found in FST payload")
+            raise RuntimeError("Aucun enregistrement trouvé dans le payload FST")
         return records[0]
     finally:
         os.close(fd)
+        if os.path.exists(actual_path):
+            os.remove(actual_path)
 
 
 def _shape_to_nijk(shape: tuple[int, ...]) -> tuple[int, int, int]:
