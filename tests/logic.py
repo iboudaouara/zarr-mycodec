@@ -13,17 +13,15 @@ async def test_fst_decode_single():
     codec = FSTCodec()
 
     with fst24_file(fst_file, "R") as f:
-        expected_rec = next(r for r in f if r.nomvar.strip() != ">>")
-        official_data = np.array(expected_rec.data, copy=True)
-        offset = expected_rec.file_offset
+        safe_rec = next(iter(f))
+
+        official_data = np.array(safe_rec.data, copy=True)
+        offset = safe_rec.file_offset
+        length = safe_rec.total_stored_bytes
 
     with open(fst_file, "rb") as raw_f:
         raw_f.seek(offset)
-        header_word = np.frombuffer(raw_f.read(4), dtype=">u4")[0]
-        rec_lng = header_word & 0x00FFFFFF
-
-        raw_f.seek(offset)
-        raw_bytes = raw_f.read(rec_lng * 8)
+        raw_bytes = raw_f.read(length)
 
     spec = ArraySpec(
         shape=official_data.shape,
