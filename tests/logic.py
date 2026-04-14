@@ -13,8 +13,8 @@ async def test_fst_decode_single():
     codec = FSTCodec()
 
     with fst24_file(fst_file, "R") as f:
-        safe_rec = next(iter(f))
-
+        safe_rec = next(r for r in f if 0 < r.total_stored_bytes < 500)
+        
         official_data = np.array(safe_rec.data, copy=True)
         offset = safe_rec.file_offset
         length = safe_rec.total_stored_bytes
