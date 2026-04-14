@@ -5,17 +5,12 @@ from typing import Iterable, Optional, Self
 
 import numpy as np
 from rmn._sharedlib import librmn
-from rmn.fstrecord import (
-    FstDataType,
-    fst_record,
-    numpy_type_to_fst_type,
-)
+from rmn.fstrecord import FstDataType, fst_record, numpy_type_to_fst_type
 from zarr.abc.codec import ArrayBytesCodec
 from zarr.core.array_spec import ArraySpec
 from zarr.core.buffer import Buffer, NDBuffer
 from zarr.core.chunk_grids import ChunkGrid
 from zarr.core.dtype.wrapper import TBaseDType, TBaseScalar, ZDType
-
 
 logging.basicConfig(level=logging.DEBUG)
 _log = logging.getLogger(__name__)
@@ -32,64 +27,31 @@ _fst24_decode_data_xdf.restype = fst_record
 
 @dataclass(frozen=True)
 class FSTCodec(ArrayBytesCodec):
-    format: str = "rsf"
-
-    # ================================================================================
-    # SINGLE CHUNK PROCESSING
-    # ================================================================================
-    async def _encode_single(
-        self, input_buffer: NDBuffer, chunk_spec: ArraySpec
-    ) -> Buffer:
-        _log.debug(
-            "[_encode_single] self=%s input_buffer=%s chunk_spec=%s",
-            self,
-            input_buffer,
-            chunk_spec,
-        )
-
-        raise NotImplementedError(
-            f"Encoding is not supported. {self.__class__.__name__} is a read-only codec."
-        )
-
     async def _decode_single(
         self, input_buffer: Buffer, chunk_spec: ArraySpec
     ) -> NDBuffer:
-        _log.debug(
-            "[_decode_single] self=%s input_buffer=%s chunk_spec=%s",
-            self,
-            input_buffer,
-            chunk_spec,
+        raw_data = input_buffer.to_bytes()
+        
+        record = _fst24_decode_data_xdf(raw_data, None)
+        
+        if not record.data:
+            raise RuntimeError("FST decoding failed: returned null pointer")
+
+        count = record.ni * record.nj * record.nk
+        dtype = np.float32 if record.data_bits <= 32 else np.float64
+
+        ptr_type = ctypes.POINTER(
+            ctypes.c_float if dtype == np.float32 else ctypes.c_double
         )
+        data_ptr = ctypes.cast(record.data, ptr_type)
 
-        raw_bytes = input_buffer.tobytes()
-        data_ptr = ctypes.cast(raw_bytes, ctypes.c_void_p)
+        array = np.ctypeslib.as_array(data_ptr, shape=(count,)).copy()
 
-        if getattr(self, "format", "rsf") == "rsf":
-            decode_func = _fst24_decode_data_rsf
-        else:
-            decode_func = _fst24_decode_data_xdf
-
-        record = decode_func(data_ptr, None)
-
-        try:
-            byte_size = int(record.ni * record.nj * record.nk * (record.data_bits // 8))
-            
-            buffer_type = ctypes.c_byte * byte_size
+        return NDBuffer(array.reshape(chunk_spec.shape))
     
-            array = np.frombuffer(
-                buffer_type.from_address(record.data),
-                dtype=chunk_spec.dtype,
-            ).reshape(chunk_spec.shape)
-
-            return array
-
-        except Exception as e:
-            _log.error("Failed to map decoded FST record to NDBuffer: %s", e)
-            raise
-
-    # ================================================================================
+    # ==========================================================================
     # BATCH PROCESSING
-    # ================================================================================
+    # ==========================================================================
     async def encode(
         self,
         chunks_and_specs: Iterable[tuple[Optional[NDBuffer], ArraySpec]],
