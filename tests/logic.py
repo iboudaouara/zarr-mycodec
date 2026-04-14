@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import ctypes
 from rmn.fst24file import fst24_file
 from zarr.core.array_spec import ArraySpec
 from zarr.core.buffer import Buffer, default_buffer_prototype
@@ -9,15 +10,17 @@ from share.my_codec import FSTCodec
 
 @pytest.mark.asyncio
 async def test_fst_decode_single():
-    fst_file = "eccc-data/2026010700_000"
+    fst_file = "eccc-data/sample_safe.fst"
     codec = FSTCodec()
 
     with fst24_file(fst_file, "R") as f:
-        safe_rec = next(r for r in f if 0 < r.total_stored_bytes < 500)
+        record = next(r for r in f if r.nomvar.strip() != ">>")
         
-        official_data = np.array(safe_rec.data, copy=True)
-        offset = safe_rec.file_offset
-        length = safe_rec.total_stored_bytes
+        ptr = ctypes.cast(record._data_ptr, ctypes.POINTER(ctypes.c_float))
+        official_data = np.ctypeslib.as_array(ptr, shape=(record.ni, record.nj)).copy()
+        # official_data = np.array(record.data, copy=True)
+        offset = record.file_offset
+        length = record.total_stored_bytes
 
     with open(fst_file, "rb") as raw_f:
         raw_f.seek(offset)
