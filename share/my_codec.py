@@ -34,17 +34,17 @@ class FSTCodec(ArrayBytesCodec):
         
         record = _fst24_decode_data_xdf(raw_data, None)
         
-        if not record.data:
+        if not record._data:
             raise RuntimeError("FST decoding failed: returned null pointer")
 
         count = record.ni * record.nj * record.nk
-        dtype = np.float32 if record.data_bits <= 32 else np.float64
 
-        ptr_type = ctypes.POINTER(
-            ctypes.c_float if dtype == np.float32 else ctypes.c_double
-        )
-        data_ptr = ctypes.cast(record.data, ptr_type)
+        if record.data_bits > 32:
+            ptr_type = ctypes.POINTER(ctypes.c_double)
+        else:
+            ptr_type = ctypes.POINTER(ctypes.c_float)
 
+        data_ptr = ctypes.cast(record._data, ptr_type)
         array = np.ctypeslib.as_array(data_ptr, shape=(count,)).copy()
 
         return NDBuffer(array.reshape(chunk_spec.shape))

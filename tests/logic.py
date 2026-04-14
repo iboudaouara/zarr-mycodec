@@ -15,10 +15,11 @@ async def test_fst_decode_single():
 
     with fst24_file(fst_file, "R") as f:
         record = next(r for r in f if r.nomvar.strip() != ">>")
+        record.data_type = 5  # 5 = FST_TYPE_FLOAT
+        record.data_bits = 32
         
-        ptr = ctypes.cast(record._data_ptr, ctypes.POINTER(ctypes.c_float))
-        official_data = np.ctypeslib.as_array(ptr, shape=(record.ni, record.nj)).copy()
-        # official_data = np.array(record.data, copy=True)
+        official_data = np.array(record.data, copy=True)
+        
         offset = record.file_offset
         length = record.total_stored_bytes
 
