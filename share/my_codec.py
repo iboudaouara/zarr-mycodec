@@ -47,7 +47,9 @@ class FSTCodec(ArrayBytesCodec):
         data_ptr = ctypes.cast(record._data, ptr_type)
         array = np.ctypeslib.as_array(data_ptr, shape=(count,)).copy()
 
-        return NDBuffer(array.reshape(chunk_spec.shape))
+        return chunk_spec.prototype.nd_buffer.from_numpy_array(
+            array.reshape(chunk_spec.shape)
+        )
     
     # ==========================================================================
     # BATCH PROCESSING
