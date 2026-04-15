@@ -8,8 +8,6 @@ target_file = "eccc-data/sample_safe.fst"
 if os.path.exists(target_file):
     os.remove(target_file)
 
-# data_to_write = np.zeros((8, 8, 1), dtype="float32", order="F")
-
 rng = np.random.default_rng(42)
 data_to_write = rng.standard_normal((8, 8, 1)).astype("float32")
 

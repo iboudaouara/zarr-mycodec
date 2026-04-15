@@ -16,8 +16,7 @@ async def test_fst_decode_single():
     with fst24_file(fst_file, "R") as f:
         record = next(iter(f))
         
-        # official_data = np.array(record.data, copy=True)
-        official_data = np.asfortranarray(record.data)
+        official_data = record.data
         offset = record.file_offset
         length = record.total_stored_bytes
 
@@ -29,7 +28,7 @@ async def test_fst_decode_single():
         shape=official_data.shape,
         dtype=str(official_data.dtype),
         fill_value=0,
-        config={"order": "F"},
+        config={},
         prototype=proto
     )
 
