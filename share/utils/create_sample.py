@@ -1,26 +1,37 @@
+import os
+
 import numpy as np
 import rmn
 from rmn.fst24file import fst24_file
-import os
-
-rec = rmn.fst_record()
-rec.nomvar = "TT"
-rec.etiket = "TESTING"
-rec.typvar = "R"
-rec.datev = 202601070
-rec.dateo = 0
-rec.deet = 0
-rec.npas = 0
-rec.ip1, rec.ip2, rec.ip3 = 0, 0, 0
-rec.ig1, rec.ig2, rec.ig3, rec.ig4 = 0, 0, 0, 0
-rec.data_type = 5
-rec.data_bits = 32
-rec.ni, rec.nj, rec.nk = 8, 8, 1
-rec.data = np.zeros((8, 8), dtype="float32", order="F")
 
 target_file = "eccc-data/sample_safe.fst"
 if os.path.exists(target_file):
     os.remove(target_file)
+
+# data_to_write = np.zeros((8, 8, 1), dtype="float32", order="F")
+
+rng = np.random.default_rng(42)
+data_to_write = rng.standard_normal((8, 8, 1)).astype("float32")
+
+data_to_write = np.asfortranarray(data_to_write)
+
+rec = rmn.fst_record(
+    nomvar = "TT",
+    etiket = "TESTING",
+    typvar = "E",
+    datev = 202601070,
+    dateo = 0,
+    deet = 0,
+    npas = 0,
+    ip1 = 0, ip2 = 0, ip3 = 0,
+    ig1 = 0, ig2 = 0, ig3 = 0, ig4 = 0,
+    data_type = 5,
+    data_bits = 32,
+    pack_bits = 32,
+    ni = 8, nj = 8, nk = 1,
+    data = data_to_write
+)
+
 
 with fst24_file(target_file, "R/W") as fout:
     fout.write(rec, rewrite=False)

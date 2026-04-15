@@ -45,12 +45,13 @@ class FSTCodec(ArrayBytesCodec):
             ptr_type = ctypes.POINTER(ctypes.c_float)
 
         data_ptr = ctypes.cast(record._data, ptr_type)
-        array = np.ctypeslib.as_array(data_ptr, shape=(count,)).copy()
-
-        return chunk_spec.prototype.nd_buffer.from_numpy_array(
-            array.reshape(chunk_spec.shape)
+        
+        array_3d = np.ctypeslib.as_array(data_ptr, shape=(count,)).reshape(
+            chunk_spec.shape, order="F"
         )
-    
+
+        return chunk_spec.prototype.nd_buffer.from_numpy_array(array_3d)
+        
     # ==========================================================================
     # BATCH PROCESSING
     # ==========================================================================
