@@ -1,9 +1,8 @@
 import numpy as np
 import pytest
-import ctypes
 from rmn.fst24file import fst24_file
 from zarr.core.array_spec import ArraySpec
-from zarr.core.buffer import Buffer, default_buffer_prototype
+from zarr.core.buffer import default_buffer_prototype
 
 from share.my_codec import FSTCodec
 
@@ -15,8 +14,7 @@ async def test_fst_decode_single():
 
     with fst24_file(fst_file, "R") as f:
         record = next(r for r in f if r.nomvar.strip() != ">>")
-        record.data_type = 5  # 5 = FST_TYPE_FLOAT
-        record.data_bits = 32
+        record.data_type = 5
         
         official_data = np.array(record.data, copy=True)
         

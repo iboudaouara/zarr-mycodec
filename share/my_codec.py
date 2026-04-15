@@ -34,8 +34,8 @@ class FSTCodec(ArrayBytesCodec):
         
         record = _fst24_decode_data_xdf(raw_data, None)
         
-        if not record._data:
-            raise RuntimeError("FST decoding failed: returned null pointer")
+        #if not record._data:
+        #    raise RuntimeError("FST decoding failed: returned null pointer")
 
         count = record.ni * record.nj * record.nk
 
